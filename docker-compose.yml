@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  pair-maker:
+    build: .
+    container_name: couple-pair-maker
+    ports:
+      - "8501:8501"
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # 로그 저장을 위한 볼륨 (선택사항)
+      - ./logs:/app/logs
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pair-maker.rule=Host(`your-domain.com`)"
+      - "traefik.http.routers.pair-maker.entrypoints=websecure"
+      - "traefik.http.routers.pair-maker.tls.certresolver=myresolver"
+    networks:
+      - pair-maker-network
+
+networks:
+  pair-maker-network:
+    driver: bridge
+
+volumes:
+  logs: 
