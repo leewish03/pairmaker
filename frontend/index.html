@@ -3,55 +3,53 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>💕 그룹교제 조편성</title>
+    <title>🎲 그룹교제 조편성</title>
 </head>
 <body>
-    <!-- React 앱이 마운트될 루트 엘리먼트 -->
     <div id="root"></div>
 
-    <!-- React 및 ReactDOM 로드 -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    
-    <!-- Babel Standalone (브라우저에서 JSX를 바로 해석하기 위함, 실제 운영시에는 빌드 도구 사용 권장) -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    <!-- PairMaker.jsx 파일 로드 -->
-    <script type="text/babel" data-type="module">
-        // 브라우저 직접 로드를 위해 export default 제거 및 함수 정의로 감싸기
-        import React, { useState } from 'react';
-        
-        // 개발 테스트용 index.html에서는 PairMaker.jsx 내용을 복사 & 붙여넣기 하거나
-        // 빌드 과정 없이 아래처럼 fetch하여 실행하는 기법을 사용합니다.
-        
-        const fetchCode = async () => {
-            const response = await fetch('PairMaker.jsx');
-            let code = await response.text();
-            
-            // 브라우저 Babel 컴파일 오류 방지를 위해 import 문을 React 전역 객체 변수로 치환
-            // ^import\s+.*;$ 는 줄 시작이 import인 JS import 문만 매칭 (CSS @import는 @로 시작하므로 안전)
-            code = code.replace(/^import\s+.*;$/gm, '');
-            code = 'const { useState, useEffect } = React;\n' + code;
-            code = code.replace(/export default function/g, 'function');
-            
-            // Babel 컴파일 후 실행
-            const compiledCode = Babel.transform(code, { presets: ['react'] }).code;
-            
-            // 스크립트로 앱 초기화 및 렌더링 추가
-            const finalScript = `
-                ${compiledCode}
-                
-                const root = ReactDOM.createRoot(document.getElementById('root'));
-                root.render(React.createElement(PairMaker));
-            `;
-            
-            const script = document.createElement('script');
-            script.type = 'text/javascript';
-            script.innerHTML = finalScript;
-            document.head.appendChild(script);
-        };
-        
-        fetchCode();
+    <script>
+        const { useState, useEffect } = React;
+
+        fetch('PairMaker.jsx')
+            .then(res => {
+                if (!res.ok) throw new Error('PairMaker.jsx 로드 실패: ' + res.status);
+                return res.text();
+            })
+            .then(code => {
+                // JS import 문만 제거 (CSS @import 보존)
+                code = code.replace(/^import\s+.*;$/gm, '');
+                // React 전역 객체 바인딩
+                code = 'const { useState, useEffect } = React;\n' + code;
+                // export default 제거
+                code = code.replace(/export\s+default\s+function\s+/g, 'function ');
+
+                const compiled = Babel.transform(code, {
+                    presets: ['react'],
+                    plugins: []
+                }).code;
+
+                const finalScript =
+                    compiled + '\n' +
+                    'const root = ReactDOM.createRoot(document.getElementById("root"));\n' +
+                    'root.render(React.createElement(PairMaker));';
+
+                const el = document.createElement('script');
+                el.textContent = finalScript;
+                document.body.appendChild(el);
+            })
+            .catch(err => {
+                console.error('앱 로드 오류:', err);
+                document.getElementById('root').innerHTML =
+                    '<div style="padding:2rem;text-align:center;font-family:sans-serif;">' +
+                    '<h2>⚠️ 앱을 불러오지 못했습니다</h2>' +
+                    '<pre style="color:red;">' + err.message + '</pre>' +
+                    '</div>';
+            });
     </script>
 </body>
 </html>
