@@ -97,6 +97,70 @@ function shuffleArray(arr) {
 class OptimizedPairMakerJS {
   constructor() { this.usedPairs = new Set(); this.arrangements = []; }
 
+  _solveNineExact(peopleList, targetCount) {
+    const shuffled = shuffleArray([...peopleList]);
+    const rounds = [];
+    for (let i = 0; i < 9; i++) {
+      for (let j = i + 1; j < 9; j++) {
+        for (let k = j + 1; k < 9; k++) {
+          const trio = [i, j, k];
+          const rem = [0,1,2,3,4,5,6,7,8].filter(p => p !== i && p !== j && p !== k);
+          const p0 = rem[0];
+          for (let a = 1; a < 6; a++) {
+            const p1 = rem[a];
+            const rem2 = rem.filter((_, idx) => idx !== 0 && idx !== a);
+            const p2 = rem2[0];
+            for (let b = 1; b < 4; b++) {
+              const p3 = rem2[b];
+              const rem3 = rem2.filter((_, idx) => idx !== 0 && idx !== b);
+              const p4 = rem3[0], p5 = rem3[1];
+              const pairsInRound = [[i, j], [i, k], [j, k], [p0, p1], [p2, p3], [p4, p5]];
+              let pairMask = 0n;
+              for (const [u, v] of pairsInRound) {
+                const [minU, maxV] = u < v ? [u, v] : [v, u];
+                let idx = 0;
+                for (let x = 0; x < minU; x++) idx += (8 - x);
+                idx += (maxV - minU - 1);
+                pairMask |= (1n << BigInt(idx));
+              }
+              rounds.push({ trio, pairs: [[p0, p1], [p2, p3], [p4, p5]], pairMask });
+            }
+          }
+        }
+      }
+    }
+    const shuffledRounds = shuffleArray(rounds);
+    const trioCounts = new Array(9).fill(0);
+    let usedPairMask = 0n;
+    const selected = [];
+    function dfs(roundIdx, startIdx) {
+      if (roundIdx === targetCount) return true;
+      const remRounds = targetCount - roundIdx;
+      for (let p = 0; p < 9; p++) {
+        if (trioCounts[p] > 2 || trioCounts[p] + remRounds < 0) return false;
+      }
+      for (let idx = startIdx; idx < shuffledRounds.length; idx++) {
+        const cand = shuffledRounds[idx];
+        if ((usedPairMask & cand.pairMask) !== 0n) continue;
+        const [t1, t2, t3] = cand.trio;
+        if (trioCounts[t1] >= 2 || trioCounts[t2] >= 2 || trioCounts[t3] >= 2) continue;
+        usedPairMask |= cand.pairMask;
+        trioCounts[t1]++; trioCounts[t2]++; trioCounts[t3]++;
+        selected.push(cand);
+        if (dfs(roundIdx + 1, idx + 1)) return true;
+        selected.pop();
+        trioCounts[t1]--; trioCounts[t2]--; trioCounts[t3]--;
+        usedPairMask ^= cand.pairMask;
+      }
+      return false;
+    }
+    if (!dfs(0, 0)) return null;
+    return selected.map(r => [
+      r.trio.map(x => shuffled[x]),
+      ...r.pairs.map(pair => pair.map(x => shuffled[x]))
+    ]);
+  }
+
   generateMultipleArrangements(peopleList, targetCount = 5, allowTrioDuplicates = false) {
     const n = peopleList.length;
     const isOdd = n % 2 !== 0;
@@ -108,6 +172,29 @@ class OptimizedPairMakerJS {
     }
     if (targetCount > maxPossible) {
       return { error: `최대 ${maxPossible}번의 배치만 가능합니다. (현재 모드 기준)`, arrangements: [], fairnessStats: null };
+    }
+
+    // 9인 6라운드 이하 완벽 매칭 특수 엔진
+    if (n === 9 && targetCount <= 6 && !allowTrioDuplicates) {
+      const exactArr = this._solveNineExact(peopleList, targetCount);
+      if (exactArr) {
+        this.arrangements = exactArr;
+        this.usedPairs = new Set();
+        exactArr.forEach(arr => arr.forEach(g => {
+          if (g.length === 2) this.usedPairs.add([...g].sort().join('|'));
+          else {
+            this.usedPairs.add([g[0], g[1]].sort().join('|'));
+            this.usedPairs.add([g[0], g[2]].sort().join('|'));
+            this.usedPairs.add([g[1], g[2]].sort().join('|'));
+          }
+        }));
+        const actual = {};
+        peopleList.forEach(p => { actual[p] = 0; });
+        exactArr.forEach(arr => arr.forEach(g => { if (g.length === 3) g.forEach(m => actual[m]++); }));
+        const vals = Object.values(actual);
+        const minV = Math.min(...vals), maxV = Math.max(...vals);
+        return { error: null, arrangements: exactArr, fairnessStats: { min: minV, max: maxV, isFair: true } };
+      }
     }
 
     let bestArrangements = [], bestUsedPairs = new Set(), bestScore = Infinity;
