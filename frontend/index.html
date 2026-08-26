@@ -53,7 +53,15 @@ body{margin:0}
 .pm-switch-track{position:absolute;inset:0;cursor:pointer;border-radius:999px;background:#d4cec9;transition:background .25s}
 .pm-switch-track::before{content:'';position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:transform .25s}
 .pm-switch input:checked+.pm-switch-track{background:var(--pm-primary)}
-.pm-switch input:checked+.pm-switch-track::before{transform:translateX(20px)}
+.pm-guide-box{margin-bottom:.9rem;padding:.75rem 1rem;border-radius:var(--pm-r-sm);background:#f6f1ec;border:1px solid #e8dfd5;display:flex;align-items:center;justify-content:space-between;gap:.6rem;font-size:.88rem;color:var(--pm-text-strong);animation:pm-fade-in .2s ease-out}
+@keyframes pm-fade-in{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:translateY(0)}}
+.pm-guide-btn{flex-shrink:0;padding:4px 10px;border:none;border-radius:999px;background:var(--pm-primary);color:#fff;font:inherit;font-size:.8rem;font-weight:700;cursor:pointer;transition:transform .15s,background .15s}
+.pm-guide-btn:hover{background:var(--pm-primary-soft);transform:scale(1.03)}
+.pm-toggle-desc{margin-top:.45rem;font-size:.82rem;line-height:1.45;color:var(--pm-text-muted)}
+.pm-toggle-badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:.75rem;font-weight:700;margin-left:.4rem}
+.pm-toggle-badge.strict{background:#e8f4ec;color:#2b6644}
+.pm-toggle-badge.expanded{background:#fdf2e9;color:#b25e16}
+.pm-toggle-badge.even{background:#eee8e1;color:var(--pm-text-muted)}
 .pm-error{margin-bottom:.8rem;padding:.75rem 1rem;border-left:4px solid #d94f4f;border-radius:var(--pm-r-sm);background:#fdf3f2;color:#d94f4f;font-size:.9rem}
 .pm-btn-generate{width:100%;padding:1rem;border:none;border-radius:var(--pm-r-md);background:linear-gradient(135deg,var(--pm-primary),var(--pm-primary-soft));color:#fff;font:inherit;font-size:1.1rem;font-weight:700;letter-spacing:.02em;cursor:pointer;box-shadow:0 4px 14px rgba(160,125,108,.35);transition:transform .2s,box-shadow .2s,opacity .2s}
 .pm-btn-generate:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 8px 20px rgba(160,125,108,.4)}
@@ -494,6 +502,37 @@ async function downloadAllImages(arrangements, filename) {
 // ==========================================
 // SECTION 4: SUB COMPONENTS
 // ==========================================
+function getMatchingGuide(n, allowTrio) {
+  if (n < 2) return null;
+  const isOdd = n % 2 !== 0;
+  if (!isOdd) {
+    return {
+      isOdd: false,
+      recommended: n - 1,
+      maxStrict: n - 1,
+      maxExpanded: n - 1,
+      maxRounds: n - 1,
+      desc: `${n}명 전원이 빠짐없이 한 번씩 만나려면 ${n - 1}라운드가 필요해요!`
+    };
+  } else {
+    const pairsPerRound = Math.floor((n + 3) / 2);
+    const totalPairs = Math.floor((n * (n - 1)) / 2);
+    const maxStrict = Math.floor(totalPairs / pairsPerRound);
+    const maxExpanded = n;
+    const rawRecommended = Math.ceil((n * (n - 1)) / (n + 3));
+    const recommended = Math.min(rawRecommended, allowTrio ? maxExpanded : maxStrict);
+    return {
+      isOdd: true,
+      recommended,
+      rawRecommended,
+      maxStrict,
+      maxExpanded,
+      maxRounds: allowTrio ? maxExpanded : maxStrict,
+      desc: `${n}명 전원이 서로 빠짐없이 만나려면 최소 ${rawRecommended}라운드가 필요해요!`
+    };
+  }
+}
+
 function CoupleMatchingView({ names, setNames }) {
   const [targetCount, setTargetCount] = useState('');
   const [allowTrio, setAllowTrio] = useState(false);
@@ -501,6 +540,10 @@ function CoupleMatchingView({ names, setNames }) {
   const [error, setError] = useState('');
   const [round, setRound] = useState(0);
   const [loading, setLoading] = useState(false);
+
+  const nc = names.split('\n').filter(s => s.trim()).length;
+  const guide = getMatchingGuide(nc, allowTrio);
+
   const run = () => {
     setError(''); setResult(null);
     const list = names.split('\n').map(s => s.trim()).filter(Boolean);
@@ -523,7 +566,7 @@ function CoupleMatchingView({ names, setNames }) {
     t += '\n💡 중복 없음!';
     navigator.clipboard.writeText(t).then(() => alert('복사했습니다!'));
   };
-  const nc = names.split('\n').filter(s => s.trim()).length;
+
   return (
     <div className="pm-layout">
       <div className="pm-card pm-input-card">
@@ -532,14 +575,67 @@ function CoupleMatchingView({ names, setNames }) {
           <textarea className="pm-textarea" value={names} onChange={e => setNames(e.target.value)} placeholder="한 줄에 한 명씩 입력하세요" />
           {nc > 0 && <span className="pm-count-badge">{nc}명</span>}
         </div>
+
+        {guide && (
+          <div className="pm-guide-box">
+            <span>💡 {guide.desc}</span>
+            <button
+              type="button"
+              className="pm-guide-btn"
+              onClick={() => setTargetCount(guide.recommended.toString())}
+              title="추천 라운드 수를 횟수 입력창에 자동 입력합니다"
+            >
+              ⚡ {guide.recommended}회 자동 입력
+            </button>
+          </div>
+        )}
+
         <div className="pm-step"><span className="pm-step-num">2</span><label>총 섞을 횟수</label></div>
-        <input className="pm-num-input" type="number" min="1" value={targetCount} onChange={e => setTargetCount(e.target.value)} placeholder="횟수를 입력하세요" />
+        <input
+          className="pm-num-input"
+          type="number"
+          min="1"
+          max={guide ? guide.maxRounds : undefined}
+          value={targetCount}
+          onChange={e => setTargetCount(e.target.value)}
+          placeholder={guide ? `추천: ${guide.recommended}회 (최대 ${guide.maxRounds}회 가능)` : '횟수를 입력하세요'}
+        />
+
         <div className="pm-toggle-card">
           <div className="pm-toggle-header">
-            <label className="pm-switch"><input type="checkbox" checked={allowTrio} onChange={e => setAllowTrio(e.target.checked)} /><span className="pm-switch-track"></span></label>
-            <strong>3명조 중복 허용 모드</strong>
+            <label className="pm-switch">
+              <input
+                type="checkbox"
+                checked={allowTrio}
+                disabled={guide && !guide.isOdd}
+                onChange={e => setAllowTrio(e.target.checked)}
+              />
+              <span className="pm-switch-track"></span>
+            </label>
+            <div>
+              <strong>3명조 중복 허용 모드</strong>
+              {guide && (
+                !guide.isOdd ? (
+                  <span className="pm-toggle-badge even">짝수 미적용</span>
+                ) : allowTrio ? (
+                  <span className="pm-toggle-badge expanded">🔓 라운드 확장</span>
+                ) : (
+                  <span className="pm-toggle-badge strict">🔒 중복 0% 엄격</span>
+                )
+              )}
+            </div>
           </div>
+          {guide && (
+            <div className="pm-toggle-desc">
+              {!guide.isOdd
+                ? `짝수 인원(${nc}명)은 3인조가 발생하지 않으며, 전원 2인조로 중복 없이 매칭됩니다.`
+                : allowTrio
+                ? `3명조에 추가되는 인원의 중복을 일부 허용하여 더 많은 라운드를 진행합니다. (최대 ${guide.maxExpanded}회 가능)`
+                : `3명조를 포함한 모든 만남이 절대 중복되지 않습니다. (최대 ${guide.maxStrict}회 가능)`}
+            </div>
+          )}
         </div>
+
         {error && <div className="pm-error">{error}</div>}
         <button className="pm-btn-generate" onClick={run} disabled={loading}>{loading ? '🔄 계산 중...' : '🎲 매칭 시작하기'}</button>
       </div>
