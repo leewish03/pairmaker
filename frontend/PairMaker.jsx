@@ -95,119 +95,208 @@ function shuffleArray(arr) {
 
 // ── A. 짝교제(1:1) 매칭 엔진 ──
 class OptimizedPairMakerJS {
-  constructor() { this.usedPairs = new Set(); this.arrangements = []; }
-
-  _solveNineExact(peopleList, targetCount) {
-    const shuffled = shuffleArray([...peopleList]);
-    const rounds = [];
-    for (let i = 0; i < 9; i++) {
-      for (let j = i + 1; j < 9; j++) {
-        for (let k = j + 1; k < 9; k++) {
-          const trio = [i, j, k];
-          const rem = [0,1,2,3,4,5,6,7,8].filter(p => p !== i && p !== j && p !== k);
-          const p0 = rem[0];
-          for (let a = 1; a < 6; a++) {
-            const p1 = rem[a];
-            const rem2 = rem.filter((_, idx) => idx !== 0 && idx !== a);
-            const p2 = rem2[0];
-            for (let b = 1; b < 4; b++) {
-              const p3 = rem2[b];
-              const rem3 = rem2.filter((_, idx) => idx !== 0 && idx !== b);
-              const p4 = rem3[0], p5 = rem3[1];
-              const pairsInRound = [[i, j], [i, k], [j, k], [p0, p1], [p2, p3], [p4, p5]];
-              let pairMask = 0n;
-              for (const [u, v] of pairsInRound) {
-                const [minU, maxV] = u < v ? [u, v] : [v, u];
-                let idx = 0;
-                for (let x = 0; x < minU; x++) idx += (8 - x);
-                idx += (maxV - minU - 1);
-                pairMask |= (1n << BigInt(idx));
-              }
-              rounds.push({ trio, pairs: [[p0, p1], [p2, p3], [p4, p5]], pairMask });
-            }
-          }
-        }
-      }
-    }
-    const shuffledRounds = shuffleArray(rounds);
-    const trioCounts = new Array(9).fill(0);
-    let usedPairMask = 0n;
-    const selected = [];
-    function dfs(roundIdx, startIdx) {
-      if (roundIdx === targetCount) return true;
-      const remRounds = targetCount - roundIdx;
-      for (let p = 0; p < 9; p++) {
-        if (trioCounts[p] > 2 || trioCounts[p] + remRounds < 0) return false;
-      }
-      for (let idx = startIdx; idx < shuffledRounds.length; idx++) {
-        const cand = shuffledRounds[idx];
-        if ((usedPairMask & cand.pairMask) !== 0n) continue;
-        const [t1, t2, t3] = cand.trio;
-        if (trioCounts[t1] >= 2 || trioCounts[t2] >= 2 || trioCounts[t3] >= 2) continue;
-        usedPairMask |= cand.pairMask;
-        trioCounts[t1]++; trioCounts[t2]++; trioCounts[t3]++;
-        selected.push(cand);
-        if (dfs(roundIdx + 1, idx + 1)) return true;
-        selected.pop();
-        trioCounts[t1]--; trioCounts[t2]--; trioCounts[t3]--;
-        usedPairMask ^= cand.pairMask;
-      }
-      return false;
-    }
-    if (!dfs(0, 0)) return null;
-    return selected.map(r => [
-      r.trio.map(x => shuffled[x]),
-      ...r.pairs.map(pair => pair.map(x => shuffled[x]))
-    ]);
+  constructor() {
+    this.usedPairs = new Set();
+    this.arrangements = [];
   }
 
   generateMultipleArrangements(peopleList, targetCount = 5, allowTrioDuplicates = false) {
     const n = peopleList.length;
+    if (n < 2) return { error: '최소 2명 이상이어야 합니다.', arrangements: [], fairnessStats: null };
+    if (targetCount < 1) return { error: '횟수를 1 이상 입력해 주세요.', arrangements: [], fairnessStats: null };
+
     const isOdd = n % 2 !== 0;
-    let maxPossible;
-    if (isOdd && allowTrioDuplicates) {
-      maxPossible = n;
-    } else {
-      maxPossible = Math.floor(Math.floor((n * (n - 1)) / 2) / Math.floor(n / 2));
-    }
-    if (targetCount > maxPossible) {
-      return { error: `최대 ${maxPossible}번의 배치만 가능합니다. (현재 모드 기준)`, arrangements: [], fairnessStats: null };
-    }
 
-    // 9인 6라운드 이하 완벽 매칭 특수 엔진
-    if (n === 9 && targetCount <= 6 && !allowTrioDuplicates) {
-      const exactArr = this._solveNineExact(peopleList, targetCount);
-      if (exactArr) {
-        this.arrangements = exactArr;
-        this.usedPairs = new Set();
-        exactArr.forEach(arr => arr.forEach(g => {
-          if (g.length === 2) this.usedPairs.add([...g].sort().join('|'));
-          else {
-            this.usedPairs.add([g[0], g[1]].sort().join('|'));
-            this.usedPairs.add([g[0], g[2]].sort().join('|'));
-            this.usedPairs.add([g[1], g[2]].sort().join('|'));
-          }
-        }));
-        const actual = {};
-        peopleList.forEach(p => { actual[p] = 0; });
-        exactArr.forEach(arr => arr.forEach(g => { if (g.length === 3) g.forEach(m => actual[m]++); }));
-        const vals = Object.values(actual);
-        const minV = Math.min(...vals), maxV = Math.max(...vals);
-        return { error: null, arrangements: exactArr, fairnessStats: { min: minV, max: maxV, isFair: true } };
+    // 1. 짝수 N: Berger Tables (100% 중복 0% 수학적 보장)
+    if (!isOdd) {
+      const maxPossible = n - 1;
+      if (targetCount > maxPossible) {
+        return { error: `짝수 ${n}명은 최대 ${maxPossible}번까지만 중복 없이 배치가 가능합니다.`, arrangements: [], fairnessStats: null };
       }
+      return this._solveEven(peopleList, targetCount);
     }
 
-    let bestArrangements = [], bestUsedPairs = new Set(), bestScore = Infinity;
-    const numSims = isOdd ? 150 : 1;
+    // 2. 홀수 N: 스마트 DFS 백트래킹 (우선 시도) -> 실패 시 앙상블 탐색 (폴백)
+    const pairsPerRound = Math.floor((n + 3) / 2);
+    const totalPossiblePairs = Math.floor((n * (n - 1)) / 2);
+    const maxPossible = allowTrioDuplicates ? n : Math.floor(totalPossiblePairs / pairsPerRound);
 
-    for (let sim = 0; sim < numSims; sim++) {
+    if (targetCount > maxPossible && !allowTrioDuplicates) {
+      return { error: `홀수 ${n}명은 중복 없이 최대 ${maxPossible}번까지만 배치가 가능합니다. (3명조 중복 허용 모드를 켜면 더 많은 배치가 가능합니다.)`, arrangements: [], fairnessStats: null };
+    }
+
+    // 2-1. DFS 백트래킹 (중복 0% & 공정성 극대화)
+    const dfsResult = this._solveOddDFS(peopleList, targetCount);
+    if (dfsResult && dfsResult.success) {
+      this.arrangements = dfsResult.arrangements;
+      this.usedPairs = dfsResult.usedPairs;
+      return { error: null, arrangements: dfsResult.arrangements, fairnessStats: dfsResult.fairnessStats };
+    }
+
+    // 2-2. 앙상블 최적화 (수학적 제약 한계 시 최소 중복 & 최고 공정성 도출)
+    const ensembleResult = this._solveOddEnsemble(peopleList, targetCount, allowTrioDuplicates);
+    this.arrangements = ensembleResult.arrangements;
+    this.usedPairs = ensembleResult.usedPairs;
+    return { error: null, arrangements: ensembleResult.arrangements, fairnessStats: ensembleResult.fairnessStats };
+  }
+
+  _solveEven(peopleList, targetCount) {
+    const n = peopleList.length;
+    const shuffled = shuffleArray(peopleList);
+    const fixed = shuffled[0];
+    let rotating = shuffled.slice(1);
+    const allRounds = [];
+
+    for (let r = 0; r < n - 1; r++) {
+      const curr = [fixed, ...rotating];
+      const matches = [];
+      for (let i = 0; i < n / 2; i++) {
+        let p1 = curr[i], p2 = curr[n - 1 - i];
+        if (Math.random() < 0.5) [p1, p2] = [p2, p1];
+        matches.push([p1, p2]);
+      }
+      allRounds.push(matches);
+      rotating = [rotating[rotating.length - 1], ...rotating.slice(0, -1)];
+    }
+
+    const selected = shuffleArray(allRounds).slice(0, targetCount);
+    const usedPairs = new Set();
+    selected.forEach(arr => arr.forEach(g => usedPairs.add([...g].sort().join('|'))));
+    this.arrangements = selected;
+    this.usedPairs = usedPairs;
+    return { error: null, arrangements: selected, fairnessStats: null };
+  }
+
+  _solveOddDFS(peopleList, targetCount) {
+    const n = peopleList.length;
+    const shuffled = shuffleArray(peopleList);
+
+    const totalTrioSpots = targetCount * 3;
+    const baseTrio = Math.floor(totalTrioSpots / n);
+    const remTrio = totalTrioSpots % n;
+    const minAllowedTrio = baseTrio;
+    const maxAllowedTrio = baseTrio + (remTrio > 0 ? 1 : 0);
+
+    const usedPairs = new Set();
+    const trioCounts = new Array(n).fill(0);
+    const selectedRounds = [];
+    const startTime = Date.now();
+    const TIMEOUT_MS = 60;
+
+    function dfs(roundIdx) {
+      if (Date.now() - startTime > TIMEOUT_MS) return false;
+      if (roundIdx === targetCount) {
+        const minC = Math.min(...trioCounts), maxC = Math.max(...trioCounts);
+        return maxC - minC <= 2;
+      }
+
+      const remRounds = targetCount - roundIdx;
+      for (let p = 0; p < n; p++) {
+        if (trioCounts[p] > maxAllowedTrio) return false;
+        if (trioCounts[p] + remRounds < minAllowedTrio) return false;
+      }
+
+      const candidateIndices = Array.from({ length: n }, (_, i) => i)
+        .sort((a, b) => trioCounts[a] - trioCounts[b] || Math.random() - 0.5);
+
+      const pool = candidateIndices.slice(0, Math.min(n, 7 + Math.floor(n / 2)));
+      const trioCands = [];
+
+      for (let i = 0; i < pool.length; i++) {
+        for (let j = i + 1; j < pool.length; j++) {
+          for (let k = j + 1; k < pool.length; k++) {
+            const t1 = pool[i], t2 = pool[j], t3 = pool[k];
+            if (trioCounts[t1] >= maxAllowedTrio || trioCounts[t2] >= maxAllowedTrio || trioCounts[t3] >= maxAllowedTrio) continue;
+            const p1 = [t1, t2].sort().join('|');
+            const p2 = [t1, t3].sort().join('|');
+            const p3 = [t2, t3].sort().join('|');
+            if (usedPairs.has(p1) || usedPairs.has(p2) || usedPairs.has(p3)) continue;
+            trioCands.push([t1, t2, t3]);
+          }
+        }
+      }
+
+      const shuffledTrios = shuffleArray(trioCands).slice(0, 35);
+
+      for (const trio of shuffledTrios) {
+        const [t1, t2, t3] = trio;
+        const rem = [];
+        for (let x = 0; x < n; x++) {
+          if (x !== t1 && x !== t2 && x !== t3) rem.push(x);
+        }
+
+        function matchPairs(nodes, currPairs) {
+          if (nodes.length === 0) return currPairs;
+          const first = nodes[0];
+          for (let idx = 1; idx < nodes.length; idx++) {
+            const other = nodes[idx];
+            const pairKey = [first, other].sort().join('|');
+            if (!usedPairs.has(pairKey)) {
+              const nextNodes = nodes.slice(1).filter(x => x !== other);
+              const res = matchPairs(nextNodes, [...currPairs, [first, other]]);
+              if (res) return res;
+            }
+          }
+          return null;
+        }
+
+        const pairSol = matchPairs(rem, []);
+        if (!pairSol) continue;
+
+        const tPairs = [
+          [t1, t2].sort().join('|'),
+          [t1, t3].sort().join('|'),
+          [t2, t3].sort().join('|')
+        ];
+        const newKeys = [...tPairs, ...pairSol.map(p => [...p].sort().join('|'))];
+        newKeys.forEach(k => usedPairs.add(k));
+        trioCounts[t1]++; trioCounts[t2]++; trioCounts[t3]++;
+
+        const arrangement = [
+          trio.map(idx => shuffled[idx]),
+          ...pairSol.map(p => p.map(idx => shuffled[idx]))
+        ];
+        selectedRounds.push(arrangement);
+
+        if (dfs(roundIdx + 1)) return true;
+
+        selectedRounds.pop();
+        trioCounts[t1]--; trioCounts[t2]--; trioCounts[t3]--;
+        newKeys.forEach(k => usedPairs.delete(k));
+      }
+
+      return false;
+    }
+
+    if (dfs(0)) {
+      const actual = {};
+      peopleList.forEach(p => { actual[p] = 0; });
+      selectedRounds.forEach(arr => arr.forEach(g => { if (g.length === 3) g.forEach(m => actual[m]++); }));
+      const vals = Object.values(actual);
+      const minV = Math.min(...vals), maxV = Math.max(...vals);
+      return {
+        success: true,
+        arrangements: selectedRounds,
+        usedPairs,
+        fairnessStats: { min: minV, max: maxV, isFair: maxV - minV <= 2 }
+      };
+    }
+    return null;
+  }
+
+  _solveOddEnsemble(peopleList, targetCount, allowTrioDuplicates) {
+    const n = peopleList.length;
+    let bestArrangements = [], bestUsedPairs = new Set(), bestScore = Infinity;
+    const NUM_SIMS = 250;
+
+    for (let sim = 0; sim < NUM_SIMS; sim++) {
       const simUsedPairs = new Set(), simArrangements = [];
       const roundTrioCounts = {};
       peopleList.forEach(p => { roundTrioCounts[p] = 0; });
 
       const DUMMY = '___DUMMY___';
       const working = shuffleArray(peopleList);
-      if (isOdd) working.push(DUMMY);
+      working.push(DUMMY);
       const nEven = working.length, rounds = [];
       const fixed = working[0];
       let rotating = working.slice(1);
@@ -228,35 +317,34 @@ class OptimizedPairMakerJS {
       let totalDup = 0;
 
       for (const matches of selected) {
-        const final = [];
-        if (!isOdd) {
-          matches.forEach(m => final.push([...m]));
-        } else {
-          let solo = null;
-          const pairs = [];
-          matches.forEach(m => {
-            if (m.includes(DUMMY)) solo = m[0] === DUMMY ? m[1] : m[0];
-            else pairs.push([...m]);
-          });
-          const dupW = allowTrioDuplicates ? 30 : 100000;
-          let bestIdx = 0, minPen = Infinity;
-          for (const idx of shuffleArray(Array.from({ length: pairs.length }, (_, i) => i))) {
-            const [p1, p2] = pairs[idx];
-            const sp1 = [solo, p1].sort().join('|'), sp2 = [solo, p2].sort().join('|'), tp = [p1, p2].sort().join('|');
-            let pen = 0;
-            if (simUsedPairs.has(sp1)) pen += dupW;
-            if (simUsedPairs.has(sp2)) pen += dupW;
-            if (simUsedPairs.has(sp1) && simUsedPairs.has(sp2) && simUsedPairs.has(tp)) pen += dupW * 5;
-            pen += (roundTrioCounts[solo] + roundTrioCounts[p1] + roundTrioCounts[p2]) * 500;
-            if (pen < minPen) { minPen = pen; bestIdx = idx; }
-          }
-          if (minPen >= dupW) totalDup++;
-          const trio = [...pairs[bestIdx], solo];
-          trio.forEach(m => { roundTrioCounts[m]++; });
-          pairs[bestIdx] = shuffleArray(trio);
-          pairs.forEach(g => final.push([...g]));
+        let solo = null;
+        const pairs = [];
+        matches.forEach(m => {
+          if (m.includes(DUMMY)) solo = m[0] === DUMMY ? m[1] : m[0];
+          else pairs.push([...m]);
+        });
+
+        const dupW = allowTrioDuplicates ? 30 : 100000;
+        let bestIdx = 0, minPen = Infinity;
+
+        for (const idx of shuffleArray(Array.from({ length: pairs.length }, (_, i) => i))) {
+          const [p1, p2] = pairs[idx];
+          const sp1 = [solo, p1].sort().join('|'), sp2 = [solo, p2].sort().join('|'), tp = [p1, p2].sort().join('|');
+          let pen = 0;
+          if (simUsedPairs.has(sp1)) pen += dupW;
+          if (simUsedPairs.has(sp2)) pen += dupW;
+          if (simUsedPairs.has(sp1) && simUsedPairs.has(sp2) && simUsedPairs.has(tp)) pen += dupW * 5;
+          pen += (roundTrioCounts[solo] + roundTrioCounts[p1] + roundTrioCounts[p2]) * 500;
+          if (pen < minPen) { minPen = pen; bestIdx = idx; }
         }
-        final.forEach(g => {
+
+        if (minPen >= dupW) totalDup++;
+        const trio = [...pairs[bestIdx], solo];
+        trio.forEach(m => { roundTrioCounts[m]++; });
+        pairs[bestIdx] = shuffleArray(trio);
+        const finalRound = pairs.map(g => [...g]);
+
+        finalRound.forEach(g => {
           if (g.length === 2) simUsedPairs.add([...g].sort().join('|'));
           else {
             simUsedPairs.add([g[0], g[1]].sort().join('|'));
@@ -264,36 +352,33 @@ class OptimizedPairMakerJS {
             simUsedPairs.add([g[1], g[2]].sort().join('|'));
           }
         });
-        simArrangements.push(final);
+        simArrangements.push(finalRound);
       }
 
       const counts = Object.values(roundTrioCounts);
-      const gap = isOdd ? Math.max(...counts) - Math.min(...counts) : 0;
-      const sumSq = isOdd ? counts.reduce((s, v) => s + v * v, 0) : 0;
+      const gap = Math.max(...counts) - Math.min(...counts);
+      const sumSq = counts.reduce((s, v) => s + v * v, 0);
       const score = totalDup * 50000 + gap * 10000 + sumSq;
 
       if (score < bestScore) {
         bestScore = score;
         bestArrangements = simArrangements;
         bestUsedPairs = simUsedPairs;
-        if (isOdd && totalDup === 0 && gap <= 1) break;
-        if (!isOdd && totalDup === 0) break;
+        if (totalDup === 0 && gap <= 1) break;
       }
     }
 
-    this.arrangements = bestArrangements;
-    this.usedPairs = bestUsedPairs;
+    const actual = {};
+    peopleList.forEach(p => { actual[p] = 0; });
+    bestArrangements.forEach(arr => arr.forEach(g => { if (g.length === 3) g.forEach(m => actual[m]++); }));
+    const vals = Object.values(actual);
+    const minV = Math.min(...vals), maxV = Math.max(...vals);
 
-    let fairnessStats = null;
-    if (isOdd) {
-      const actual = {};
-      peopleList.forEach(p => { actual[p] = 0; });
-      bestArrangements.forEach(arr => arr.forEach(g => { if (g.length === 3) g.forEach(m => actual[m]++); }));
-      const vals = Object.values(actual);
-      const minV = Math.min(...vals), maxV = Math.max(...vals);
-      fairnessStats = { min: minV, max: maxV, isFair: maxV - minV <= 1 };
-    }
-    return { error: null, arrangements: bestArrangements, fairnessStats };
+    return {
+      arrangements: bestArrangements,
+      usedPairs: bestUsedPairs,
+      fairnessStats: { min: minV, max: maxV, isFair: maxV - minV <= 2 }
+    };
   }
 }
 
